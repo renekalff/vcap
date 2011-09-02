@@ -21,7 +21,6 @@ require 'yaml'
 require 'em-http'
 require 'nats/client'
 require 'thin'
-
 require 'vcap/common'
 require 'vcap/component'
 require 'vcap/logging'
@@ -30,6 +29,7 @@ module DEA
 
   require 'directory'
   require 'secure'
+  require 'instance'
 
   class NonFatalTimeOutError < StandardError
   end
@@ -272,12 +272,12 @@ module DEA
 
     def generate_heartbeat(instance)
       {
-        :droplet => instance[:droplet_id],
-        :version => instance[:version],
-        :instance => instance[:instance_id],
-        :index => instance[:instance_index],
-        :state => instance[:state],
-        :state_timestamp => instance[:state_timestamp]
+        :droplet => instance.droplet_id,
+        :version => instance.version,
+        :instance => instance.instance_id,
+        :index => instance.instance_index,
+        :state => instance.state,
+        :state_timestamp => instance.state_timestamp
       }
     end
 
@@ -286,18 +286,18 @@ module DEA
       message_json = JSON.parse(message)
       @droplets.each_value do |instances|
         instances.each_value do |instance|
-          next unless [:STARTING,:RUNNING].include?(instance[:state])
+          next unless [:STARTING,:RUNNING].include?(instance.state)
           response = {
-            :name => instance[:name],
+            :name => instance.name,
             :host => @local_ip,
-            :port => instance[:port],
-            :uris => instance[:uris],
-            :uptime => Time.now - instance[:start],
-            :mem_quota => instance[:mem_quota],
-            :disk_quota => instance[:disk_quota],
-            :fds_quota => instance[:fds_quota]
+            :port => instance.port,
+            :uris => instance.uris,
+            :uptime => Time.now - instance.start,
+            :mem_quota => instance.mem_quota,
+            :disk_quota => instance.disk_quota,
+            :fds_quota => instance.fds_quota
           }
-          response[:usage] = @usage[instance[:pid]].last if @usage[instance[:pid]]
+          response[:usage] = @usage[instance.pid].last if @usage[instance.pid]
           NATS.publish(reply, response.to_json)
         end
       end
@@ -383,37 +383,37 @@ module DEA
       droplet = @droplets[droplet_id]
       if droplet
         droplet.each_value do |instance|
-          version_matched = version.nil? || instance[:version] == version
-          instance_matched = instance_ids.nil? || instance_ids.include?(instance[:instance_id])
-          index_matched = indices.nil? || indices.include?(instance[:instance_index])
-          state_matched = states.nil? || states.include?(instance[:state].to_s)
+          version_matched = version.nil? || instance.version == version
+          instance_matched = instance_ids.nil? || instance_ids.include?(instance.instance_id)
+          index_matched = indices.nil? || indices.include?(instance.instance_index)
+          state_matched = states.nil? || states.include?(instance.state.to_s)
 
           if version_matched && instance_matched && index_matched && state_matched
             response = {
               :dea => VCAP::Component.uuid,
-              :version => instance[:version],
-              :droplet => instance[:droplet_id],
-              :instance => instance[:instance_id],
-              :index => instance[:instance_index],
-              :state => instance[:state],
-              :state_timestamp => instance[:state_timestamp],
+              :version => instance.version,
+              :droplet => instance.droplet_id,
+              :instance => instance.instance_id,
+              :index => instance.instance_index,
+              :state => instance.state,
+              :state_timestamp => instance.state_timestamp,
               :file_uri => "http://#{@local_ip}:#{@file_viewer_port}/droplets/",
               :credentials => @file_auth,
-              :staged => instance[:staged]
+              :staged => instance.staged
             }
-            if include_stats && instance[:state] == :RUNNING
+            if include_stats && instance.state == :RUNNING
               response[:stats] = {
-                :name => instance[:name],
+                :name => instance.name,
                 :host => @local_ip,
-                :port => instance[:port],
-                :uris => instance[:uris],
-                :uptime => Time.now - instance[:start],
-                :mem_quota => instance[:mem_quota],
-                :disk_quota => instance[:disk_quota],
-                :fds_quota => instance[:fds_quota],
+                :port => instance.port,
+                :uris => instance.uris,
+                :uptime => Time.now - instance.start,
+                :mem_quota => instance.mem_quota,
+                :disk_quota => instance.disk_quota,
+                :fds_quota => instance.fds_quota,
                 :cores => @num_cores
               }
-              response[:stats][:usage] = @usage[instance[:pid]].last if @usage[instance[:pid]]
+              response[:stats][:usage] = @usage[instance.pid].last if @usage[instance.pid]
             end
             NATS.publish(reply, response.to_json)
           end
@@ -433,7 +433,7 @@ module DEA
       if droplet
         uris = message_json['uris']
         droplet.each_value do |instance|
-          current_uris = instance[:uris]
+          current_uris = instance.uris
 
           @logger.debug("Mapping new URIs.")
           @logger.debug("New: #{uris.pretty_inspect} Current: #{current_uris.pretty_inspect}")
@@ -459,13 +459,13 @@ module DEA
 
       return unless instances = @droplets[droplet_id]
       instances.each_value do |instance|
-        version_matched  = version.nil? || instance[:version] == version
-        instance_matched = instance_ids.nil? || instance_ids.include?(instance[:instance_id])
-        index_matched    = indices.nil? || indices.include?(instance[:instance_index])
-        state_matched    = states.nil? || states.include?(instance[:state].to_s)
+        version_matched  = version.nil? || instance.version == version
+        instance_matched = instance_ids.nil? || instance_ids.include?(instance.instance_id)
+        index_matched    = indices.nil? || indices.include?(instance.instance_index)
+        state_matched    = states.nil? || states.include?(instance.state.to_s)
         if (version_matched && instance_matched && index_matched && state_matched)
-          instance[:exit_reason] = :STOPPED if [:STARTING, :RUNNING].include?(instance[:state])
-          if instance[:state] == :CRASHED
+          instance[:exit_reason] = :STOPPED if [:STARTING, :RUNNING].include?(instance.state)
+          if instance.state == :CRASHED
             instance[:state] = :DELETED
             instance[:stop_processed] = false
           end
@@ -527,7 +527,7 @@ module DEA
       tgz_file = File.join(@staged_dir, "#{sha1}.tgz")
       instance_dir = File.join(@apps_dir, "#{name}-#{instance_index}-#{instance_id}")
 
-      instance = {
+      instance = Instance.new.merge({
         :droplet_id => droplet_id,
         :instance_id => instance_id,
         :instance_index => instance_index,
@@ -545,7 +545,7 @@ module DEA
         :start => Time.now,
         :state_timestamp => Time.now.to_i,
         :log_id => "(name=%s app_id=%s instance=%s index=%s)" % [name, droplet_id, instance_id, instance_index],
-      }
+      })
 
       instances = @droplets[droplet_id] || {}
       instances[instance_id] = instance
@@ -563,14 +563,14 @@ module DEA
         port = VCAP.grab_ephemeral_port
 
         @logger.debug('Completed download')
-        @logger.info("Starting up instance #{instance[:log_id]} on port:#{port}")
+        @logger.info("Starting up instance #{instance.log_id} on port:#{port}")
 
         @logger.debug("Clients: #{@num_clients}")
         @logger.debug("Reserved Memory Usage: #{@reserved_mem} MB of #{@max_memory} MB TOTAL")
 
         instance[:port] = port
 
-        manifest_file = File.join(instance[:dir], 'droplet.yaml')
+        manifest_file = File.join(instance.dir, 'droplet.yaml')
         manifest = {}
         manifest = File.open(manifest_file) { |f| YAML.load(f) } if File.file?(manifest_file)
 
@@ -629,7 +629,7 @@ module DEA
 
         exit_operation = proc do |_, status|
           @logger.info("#{name} completed running with status = #{status}.")
-          @logger.info("#{name} uptime was #{Time.now - instance[:start]}.")
+          @logger.info("#{name} uptime was #{Time.now - instance.start}.")
           stop_droplet(instance)
         end
 
@@ -644,8 +644,8 @@ module DEA
         # Send the start message, which will bind the router, when we have established the
         # connection..
         detect_app_ready(instance, manifest) do |detected|
-          if detected and not instance[:stop_processed]
-            @logger.info("Instance #{instance[:log_id]} is ready for connections, notifying system of status")
+          if detected and not instance.stop_processed
+            @logger.info("Instance #{instance.log_id} is ready for connections, notifying system of status")
             instance[:state] = :RUNNING
             instance[:state_timestamp] = Time.now.to_i
             send_single_heartbeat(instance)
@@ -658,8 +658,8 @@ module DEA
         end
 
         detect_app_pid(instance_dir) do |pid|
-          if pid and not instance[:stop_processed]
-            @logger.info("PID:#{pid} assigned to droplet instance: #{instance[:log_id]}")
+          if pid and not instance.stop_processed
+            @logger.info("PID:#{pid} assigned to droplet instance: #{instance.log_id}")
             instance[:pid] = pid
             schedule_snapshot
           end
@@ -680,7 +680,7 @@ module DEA
         if success
           start_operation.call
         else
-          @logger.warn("Failed staging app dir '#{instance_dir}', not starting app #{instance[:log_id]}")
+          @logger.warn("Failed staging app dir '#{instance_dir}', not starting app #{instance.log_id}")
           # This should do the right thing despite the app never being started.
           # It will notify both the routers and the HM that the app has gone
           # away in a CRASHED state, put the secure user back into the user
@@ -698,9 +698,9 @@ module DEA
           # cleanup_droplet() (gross, I know). The other option would be to set
           # the state to STOPPED and call cleanup_droplet(). Not sure which is
           # worse.
-          if droplet = @droplets[instance[:droplet_id]]
-            droplet.delete(instance[:instance_id])
-            @droplets.delete(instance[:droplet_id]) if droplet.empty?
+          if droplet = @droplets[instance.droplet_id]
+            droplet.delete(instance.instance_id)
+            @droplets.delete(instance.droplet_id) if droplet.empty?
             schedule_snapshot
           end
         end
@@ -714,7 +714,7 @@ module DEA
       @logger.debug("DEA received router start message: #{message}")
       @droplets.each_value do |instances|
         instances.each_value do |instance|
-          register_instance_with_router(instance) if instance[:state] == :RUNNING
+          register_instance_with_router(instance) if instance.state == :RUNNING
         end
       end
     end
@@ -752,16 +752,16 @@ module DEA
       recovered.each_pair do |app_id, instances|
         @droplets[app_id.to_i] = instances
         instances.each_pair do |instance_id, instance|
-          new_instance = {}
+          new_instance = Instance.new
           instance.each_pair do |key, value|
             new_instance[key.to_sym] = value
           end
           instances[instance_id] = new_instance
           instance = new_instance
-          instance[:state] = instance[:state].to_sym if instance[:state]
-          instance[:exit_reason] = instance[:exit_reason].to_sym if instance[:exit_reason]
+          instance[:state] = instance.state.to_sym if instance.state
+          instance[:exit_reason] = instance.exit_reason.to_sym if instance.exit_reason
           instance[:orphaned] = true
-          instance[:start] = Time.parse(instance[:start]) if instance[:start]
+          instance[:start] = Time.parse(instance.start) if instance.start
 
           # Assume they are running until we know different..
           # Accounting is done here so we do not run ahead with the defers.
@@ -772,8 +772,8 @@ module DEA
           instance[:stop_processed] = false
 
           # Account for secure users here as well..
-          if @secure && instance[:secure_user]
-            user = find_secure_user(instance[:secure_user])
+          if @secure && instance.secure_user
+            user = find_secure_user(instance.secure_user)
             user[:available] = false
           end
         end
@@ -794,7 +794,7 @@ module DEA
       tracked_instance_dirs = Set.new
       for droplet_id, instances in @droplets
         for instance_id, instance in instances
-          tracked_instance_dirs << instance[:dir]
+          tracked_instance_dirs << instance.dir
         end
       end
 
@@ -807,21 +807,21 @@ module DEA
     end
 
     def add_instance_resources(instance)
-      return if instance[:resources_tracked]
+      return if instance.resources_tracked
       instance[:resources_tracked] = true
       @reserved_mem += instance_mem_usage_in_mb(instance)
       @num_clients += 1
     end
 
     def remove_instance_resources(instance)
-      return unless instance[:resources_tracked]
+      return unless instance.resources_tracked
       instance[:resources_tracked] = false
       @reserved_mem -= instance_mem_usage_in_mb(instance)
       @num_clients -= 1
     end
 
     def instance_mem_usage_in_mb(instance)
-      (instance[:mem_quota] / (1024*1024)).to_i
+      (instance.mem_quota / (1024*1024)).to_i
     end
 
     def grab_ephemeral_port
@@ -836,7 +836,7 @@ module DEA
     def detect_app_ready(instance, manifest, &block)
       state_file = manifest['state_file']
       if state_file
-        state_file = File.join(instance[:dir], state_file)
+        state_file = File.join(instance.dir, state_file)
         detect_state_ready(instance, state_file, &block)
       else
         detect_port_ready(instance, &block)
@@ -858,7 +858,7 @@ module DEA
           timer.cancel
         else
           attempts += 1
-          if attempts > 600 || instance[:state] != :STARTING # 5 minutes or instance was stopped
+          if attempts > 600 || instance.state != :STARTING # 5 minutes or instance was stopped
             block.call(false)
             timer.cancel
           end
@@ -880,7 +880,7 @@ module DEA
           end
         rescue => e
           attempts += 1
-          if attempts > 120 || instance[:state] != :STARTING # 1 minute or instance was stopped
+          if attempts > 120 || instance.state != :STARTING # 1 minute or instance was stopped
             timer.cancel
             block.call(false)
           end
@@ -1040,9 +1040,9 @@ module DEA
       env_hash = {}
       whitelist.each {|k| env_hash[k] = instance[k] if instance[k]}
       env_hash[:limits] = {
-        :fds  => instance[:fds_quota],
-        :mem  => instance[:mem_quota],
-        :disk => instance[:disk_quota],
+        :fds  => instance.fds_quota,
+        :mem  => instance.mem_quota,
+        :disk => instance.disk_quota,
       }
       env_hash[:host] = @local_ip
       env_hash.to_json
@@ -1051,21 +1051,21 @@ module DEA
     def setup_instance_env(instance, app_env, services)
       env = []
 
-      env << "HOME=#{instance[:dir]}"
+      env << "HOME=#{instance.dir}"
       env << "VCAP_APPLICATION='#{create_instance_for_env(instance)}'"
       env << "VCAP_SERVICES='#{create_services_for_env(services)}'"
       env << "VCAP_APP_HOST='#{@local_ip}'"
-      env << "VCAP_APP_PORT='#{instance[:port]}'"
+      env << "VCAP_APP_PORT='#{instance.port}'"
 
       # LEGACY STUFF
       env << "VMC_WARNING_WARNING='All VMC_* environment variables are deprecated, please use VCAP_* versions.'"
       env << "VMC_SERVICES='#{create_legacy_services_for_env(services)}'"
       env << "VMC_APP_INSTANCE='#{instance.to_json}'"
-      env << "VMC_APP_NAME='#{instance[:name]}'"
-      env << "VMC_APP_ID='#{instance[:instance_id]}'"
-      env << "VMC_APP_VERSION='#{instance[:version]}'"
+      env << "VMC_APP_NAME='#{instance.name}'"
+      env << "VMC_APP_ID='#{instance.instance_id}'"
+      env << "VMC_APP_VERSION='#{instance.version}'"
       env << "VMC_APP_HOST='#{@local_ip}'"
-      env << "VMC_APP_PORT='#{instance[:port]}'"
+      env << "VMC_APP_PORT='#{instance.port}'"
 
       services.each do |service|
         hostname = service['credentials']['hostname'] || service['credentials']['host']
@@ -1074,7 +1074,7 @@ module DEA
       end
 
       # Do the runtime environment settings
-      runtime_env(instance[:runtime]).each { |re| env << re }
+      runtime_env(instance.runtime).each { |re| env << re }
 
       # User's environment settings
       # Make sure user's env variables are in double quotes.
@@ -1096,7 +1096,7 @@ module DEA
         @logger.debug("Evacuating app #{id}")
         instances.each_value do |instance|
           # skip any crashed instances
-          next if instance[:state] == :CRASHED
+          next if instance.state == :CRASHED
           instance[:exit_reason] = :DEA_EVACUATION
           send_exited_notification(instance)
           instance[:evacuated] = true
@@ -1114,7 +1114,7 @@ module DEA
         @logger.debug("Stopping app #{id}")
         instances.each_value do |instance|
           # skip any crashed instances
-          instance[:exit_reason] = :DEA_SHUTDOWN unless instance[:state] == :CRASHED
+          instance[:exit_reason] = :DEA_SHUTDOWN unless instance.state == :CRASHED
           stop_droplet(instance)
         end
       end
@@ -1130,27 +1130,27 @@ module DEA
     end
 
     def instance_running?(instance)
-      return false unless instance && instance[:pid]
-      `ps -o rss= -p #{instance[:pid]}`.length > 0
+      return false unless instance && instance.pid
+      `ps -o rss= -p #{instance.pid}`.length > 0
     end
 
     def stop_droplet(instance)
       # On stop from cloud controller, this can get called twice. Just make sure we are re-entrant..
-      return if (instance[:stop_processed])
+      return if (instance.stop_processed)
 
       # Unplug us from the system immediately, both the routers and health managers.
       send_exited_message(instance)
 
-      @logger.info("Stopping instance #{instance[:log_id]}")
+      @logger.info("Stopping instance #{instance.log_id}")
 
       # grab secure user
-      username = instance[:secure_user]
+      username = instance.secure_user
 
       # if system thinks this process is running, make sure to execute stop script
-      if instance[:pid] || [:STARTING, :RUNNING].include?(instance[:state])
-        instance[:state] = :STOPPED unless instance[:state] == :CRASHED
+      if instance.pid || [:STARTING, :RUNNING].include?(instance.state)
+        instance[:state] = :STOPPED unless instance.state == :CRASHED
         instance[:state_timestamp] = Time.now.to_i
-        stop_cmd = File.join(instance[:dir], 'stop')
+        stop_cmd = File.join(instance.dir, 'stop')
         stop_cmd = "su -c #{stop_cmd} #{username}" if @secure
         stop_cmd = "#{stop_cmd} 2> dev/null"
 
@@ -1176,63 +1176,63 @@ module DEA
     def cleanup_droplet(instance)
       # Drop usage and resource tracking regardless of state
       remove_instance_resources(instance)
-      @usage.delete(instance[:pid]) if instance[:pid]
+      @usage.delete(instance.pid) if instance.pid
       # clean up the in memory instance and directory only if the instance didn't crash
-      unless instance[:state] == :CRASHED
-        if droplet = @droplets[instance[:droplet_id]]
-          droplet.delete(instance[:instance_id])
-          @droplets.delete(instance[:droplet_id]) if droplet.empty?
+      unless instance.state == :CRASHED
+        if droplet = @droplets[instance.droplet_id]
+          droplet.delete(instance.instance_id)
+          @droplets.delete(instance.droplet_id) if droplet.empty?
           schedule_snapshot
         end
         unless @disable_dir_cleanup
-          @logger.debug("#{instance[:name]}: Cleaning up dir #{instance[:dir]}")
-          EM.system("rm -rf #{instance[:dir]}")
+          @logger.debug("#{instance.name}: Cleaning up dir #{instance.dir}")
+          EM.system("rm -rf #{instance.dir}")
         end
       end
     end
 
     def register_instance_with_router(instance, options = {})
-      return unless (instance and instance[:uris] and not instance[:uris].empty?)
+      return unless (instance and instance.uris and not instance.uris.empty?)
       NATS.publish('router.register', {
                      :dea  => VCAP::Component.uuid,
                      :host => @local_ip,
-                     :port => instance[:port],
-                     :uris => options[:uris] || instance[:uris],
-                     :tags => {:framework => instance[:framework], :runtime => instance[:runtime]}
+                     :port => instance.port,
+                     :uris => options[:uris] || instance.uris,
+                     :tags => {:framework => instance.framework, :runtime => instance.runtime}
                    }.to_json)
     end
 
     def unregister_instance_from_router(instance, options = {})
-      return unless (instance and instance[:uris] and not instance[:uris].empty?)
+      return unless (instance and instance.uris and not instance.uris.empty?)
       NATS.publish('router.unregister', {
                      :dea  => VCAP::Component.uuid,
                      :host => @local_ip,
-                     :port => instance[:port],
-                     :uris => options[:uris] || instance[:uris]
+                     :port => instance.port,
+                     :uris => options[:uris] || instance.uris
                    }.to_json)
     end
 
     def send_exited_notification(instance)
-      return if instance[:evacuated]
+      return if instance.evacuated
       exit_message = {
-        :droplet => instance[:droplet_id],
-        :version => instance[:version],
-        :instance => instance[:instance_id],
-        :index => instance[:instance_index],
-        :reason => instance[:exit_reason],
+        :droplet => instance.droplet_id,
+        :version => instance.version,
+        :instance => instance.instance_id,
+        :index => instance.instance_index,
+        :reason => instance.exit_reason,
       }
-      exit_message[:crash_timestamp] = instance[:state_timestamp] if instance[:state] == :CRASHED
+      exit_message[:crash_timestamp] = instance.state_timestamp if instance.state == :CRASHED
       exit_message = exit_message.to_json
       NATS.publish('droplet.exited', exit_message)
       @logger.debug("Sent droplet.exited #{exit_message}")
     end
 
     def send_exited_message(instance)
-      return if instance[:notified]
+      return if instance.notified
 
       unregister_instance_from_router(instance)
 
-      unless instance[:exit_reason]
+      unless instance.exit_reason
         instance[:exit_reason] = :CRASHED
         instance[:state] = :CRASHED
         instance[:state_timestamp] = Time.now.to_i
@@ -1268,7 +1268,7 @@ module DEA
       # If we are here we have droplets, but we need to make sure that we have ones we feel are starting or running.
       @droplets.each_value do |instances|
         instances.each_value do |instance|
-          return false if [:STARTING, :RUNNING].include?(instance[:state])
+          return false if [:STARTING, :RUNNING].include?(instance.state)
         end
       end
       return true
@@ -1278,17 +1278,17 @@ module DEA
     def check_usage(instance, usage, history)
       return unless instance && usage
       # Check Mem
-      if (usage[:mem] > (instance[:mem_quota]/1024))
-        logger = Logger.new(File.join(instance[:dir], 'logs', 'err.log'))
-        logger.fatal("Memory limit of #{(instance[:mem_quota]/1024/1024).to_i}M exceeded.")
+      if (usage[:mem] > (instance.mem_quota/1024))
+        logger = Logger.new(File.join(instance.dir, 'logs', 'err.log'))
+        logger.fatal("Memory limit of #{(instance.mem_quota/1024/1024).to_i}M exceeded.")
         logger.fatal("Actual usage was #{(usage[:mem]/1024).to_i}M, process terminated.")
         logger.close
         stop_droplet(instance)
       end
       # Check Disk
-      if (usage[:disk] > instance[:disk_quota])
-        logger = Logger.new(File.join(instance[:dir], 'logs', 'err.log'))
-        logger.fatal("Disk usage limit of #{(instance[:disk_quota]/1024/1024).to_i}M exceeded.")
+      if (usage[:disk] > instance.disk_quota)
+        logger = Logger.new(File.join(instance.dir, 'logs', 'err.log'))
+        logger.fatal("Disk usage limit of #{(instance.disk_quota/1024/1024).to_i}M exceeded.")
         logger.fatal("Actual usage was #{(usage[:disk]/1024/1024).to_i}M, process terminated.")
         logger.close
         stop_droplet(instance)
@@ -1296,11 +1296,11 @@ module DEA
       # Check CPU
       return unless history
       if usage[:cpu] > BEGIN_RENICE_CPU_THRESHOLD
-        nice = (instance[:nice] || 0) + 1
+        nice = (instance.nice || 0) + 1
         if nice < MAX_RENICE_VALUE
           instance[:nice] = nice
-          @logger.info("Lowering priority on CPU bound process(#{instance[:name]}), new value:#{nice}")
-          %x[renice  #{nice} -u #{instance[:secure_user]}]
+          @logger.info("Lowering priority on CPU bound process(#{instance.name}), new value:#{nice}")
+          %x[renice  #{nice} -u #{instance.secure_user}]
         end
       end
       # TODO, Check for an attack, or what looks like one, and look at history?
@@ -1342,10 +1342,10 @@ module DEA
       @droplets.each_value do |instances|
         # delete all crashed instances that are older than an hour
         instances.delete_if do |_, instance|
-          delete_instance = instance[:state] == :CRASHED && Time.now.to_i - instance[:state_timestamp] > CRASHES_REAPER_TIMEOUT
+          delete_instance = instance.state == :CRASHED && Time.now.to_i - instance.state_timestamp > CRASHES_REAPER_TIMEOUT
           if delete_instance
-            @logger.debug("Crashes reaper deleted: #{instance[:instance_id]}")
-            EM.system("rm -rf #{instance[:dir]}") unless @disable_dir_cleanup
+            @logger.debug("Crashes reaper deleted: #{instance.instance_id}")
+            EM.system("rm -rf #{instance.dir}") unless @disable_dir_cleanup
           end
           delete_instance
         end
@@ -1429,13 +1429,13 @@ module DEA
 
       @droplets.each_value do |instances|
         instances.each_value do |instance|
-          if instance[:pid] && pid_info[instance[:pid]]
-            pid = instance[:pid]
+          if instance.pid && pid_info[instance.pid]
+            pid = instance.pid
             mem = cpu = 0
-            disk = du_hash[File.basename(instance[:dir])] || 0
+            disk = du_hash[File.basename(instance.dir)] || 0
             # For secure mode, gather all stats for secure_user so we can process forks, etc.
-            if @secure && user_info[instance[:secure_user]]
-              user_info[instance[:secure_user]].each do |part|
+            if @secure && user_info[instance.secure_user]
+              user_info[instance.secure_user].each do |part|
                 mem += part[MEM_INDEX].to_f
                 cpu += part[CPU_INDEX].to_f
                 # disabled for now, LSOF is too slow to run per app/user
@@ -1459,7 +1459,7 @@ module DEA
               metric = value[instance[key]] ||= {:used_memory => 0, :reserved_memory => 0,
                                                  :used_disk => 0, :used_cpu => 0}
               metric[:used_memory] += mem
-              metric[:reserved_memory] += instance[:mem_quota] / 1024
+              metric[:reserved_memory] += instance.mem_quota / 1024
               metric[:used_disk] += disk
               metric[:used_cpu] += cpu
             end
@@ -1477,7 +1477,7 @@ module DEA
             instance.delete(:pid)
             # Check to see if this is an orphan that is no longer running, clean up here if needed
             # since there will not be a cleanup proc or stop call associated with the instance..
-            stop_droplet(instance) if (instance[:orphaned] && !instance[:stop_processed])
+            stop_droplet(instance) if (instance.orphaned && !instance.stop_processed)
           end
         end
       end

@@ -2,6 +2,7 @@
 require File.join(File.dirname(__FILE__), 'spec_helper')
 
 require 'dea/agent'
+require 'dea/instance'
 
 describe 'DEA Agent' do
   UNIT_TESTS_DIR = "/tmp/dea_agent_unit_tests_#{Process.pid}_#{Time.now.to_i}"
@@ -55,7 +56,7 @@ describe 'DEA Agent' do
       FileUtils.mkdir(inst_dir)
       File.directory?(inst_dir).should be_true
 
-      agent.instance_variable_set(:@droplets, {1 => {0 => {:dir => inst_dir}}})
+      agent.instance_variable_set(:@droplets, {1 => {0 => DEA::Instance.new.merge({:dir => inst_dir})}})
       agent.delete_untracked_instance_dirs
 
       File.directory?(inst_dir).should be_true
@@ -89,11 +90,11 @@ describe 'DEA Agent' do
 
       droplets = {
         0 => {
-          0 => {
+          0 => DEA::Instance.new.merge({
             :dir   => inst_dir,
             :state => :CRASHED,
             :state_timestamp => Time.now.to_i - DEA::Agent::CRASHES_REAPER_TIMEOUT - 60,
-          },
+          }),
         }
       }
       agent.instance_variable_set(:@droplets, droplets)
