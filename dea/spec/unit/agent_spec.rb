@@ -56,7 +56,7 @@ describe 'DEA Agent' do
       FileUtils.mkdir(inst_dir)
       File.directory?(inst_dir).should be_true
 
-      agent.instance_variable_set(:@droplets, {1 => {0 => DEA::Instance.new.merge({:dir => inst_dir})}})
+      agent.instance_variable_set(:@droplets, {1 => {0 => DEA::Instance.new({:dir => inst_dir})}})
       agent.delete_untracked_instance_dirs
 
       File.directory?(inst_dir).should be_true
@@ -90,7 +90,7 @@ describe 'DEA Agent' do
 
       droplets = {
         0 => {
-          0 => DEA::Instance.new.merge({
+          0 => DEA::Instance.new({
             :dir   => inst_dir,
             :state => :CRASHED,
             :state_timestamp => Time.now.to_i - DEA::Agent::CRASHES_REAPER_TIMEOUT - 60,

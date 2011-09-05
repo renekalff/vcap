@@ -1,116 +1,40 @@
 module DEA
-  class Instance < Hash
+  class Instance 
+    attr_accessor :uris, :exit_reason, :state, :stop_processed, :secure_user, :port, :staged, :state_timestamp
+    attr_accessor :pid, :orphaned, :start, :resources_tracked, :evacuated, :notified, :nice, :usage
+    attr_reader   :droplet_id, :version, :instance_id, :instance_index, :name
+    attr_reader   :mem_quota, :disk_quota, :fds_quota, :log_id, :dir, :users, :runtime, :framework
 
-    def droplet_id
-      self[:droplet_id]
-    end
+    def initialize(cfg={})
+      @uris = cfg[:uris]
+      @exit_reason = cfg[:exit_reason]
+      @state = cfg[:state]
+      @stop_processed = cfg[:stop_processed]
+      @secure_user = cfg[:secure_user]
+      @port = cfg[:port]
+      @staged = cfg[:staged]
+      @state_timestamp = cfg[:state_timestamp]
+      @pid = cfg[:pid]
+      @orphaned = cfg[:orphaned]
+      @start = cfg[:start]
+      @resources_tracked = cfg[:resources_tracked]
+      @evacuated = cfg[:evacuated]
+      @notified = cfg[:notified]
+      @nice = cfg[:nice]
 
-    def version
-      self[:version]
-    end
-
-    def instance_id
-      self[:instance_id]
-    end
-
-    def state
-      self[:state]
-    end
-
-    def state_timestamp
-      self[:state_timestamp]
-    end
-
-    def instance_index
-      self[:instance_index]
-    end
-
-    def name
-      self[:name]
-    end
-
-    def port
-      self[:port]
-    end
-
-    def uris
-      self[:uris]
-    end
-
-    def start
-      self[:start]
-    end
-
-    def mem_quota
-      self[:mem_quota]
-    end
-
-    def disk_quota
-      self[:disk_quota]
-    end
-
-    def fds_quota
-      self[:fds_quota]
-    end
-
-    def pid
-      self[:pid]
-    end
-
-    def staged
-      self[:staged]
-    end
-
-    def exit_reason
-      self[:exit_reason]
-    end
-
-    def stop_processed
-      self[:stop_processed]
-    end
-
-    def log_id
-      self[:log_id]
-    end
-
-    def dir
-      self[:dir]
-    end
-
-    def users
-      self[:users]
-    end
-
-    def runtime
-      self[:runtime]
-    end
-
-    def framework
-      self[:framework]
-    end
-
-    def resources_tracked
-      self[:resources_tracked]
-    end
-
-    def evacuated
-      self[:evacuated]
-    end
-
-    def notified
-      self[:notified]
-    end
-
-    def nice
-      self[:nice]
-    end
-
-    def orphaned
-      self[:orphaned]
-    end
-
-    def secure_user
-      self[:secure_user]
+      @droplet_id = cfg[:droplet_id]
+      @version = cfg[:version]
+      @instance_id = cfg[:instance_id]
+      @instance_index = cfg[:instance_index]
+      @name = cfg[:name]
+      @mem_quota = cfg[:mem_quota]
+      @disk_quota = cfg[:disk_quota] 
+      @fds_quota = cfg[:fds_quota]
+      @log_id = cfg[:log_id]
+      @dir = cfg[:dir]
+      @users = cfg[:users]
+      @runtime = cfg[:runtime]
+      @framework = cfg[:framework]
     end
 
   end
